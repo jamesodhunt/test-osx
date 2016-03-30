@@ -20,6 +20,7 @@ handle_proc_branch_darwin (void)
 	int                  i;
 	int                  ret;
 	int                  done = false;
+	int                  attempts = 0;
 
 	current = getpid ();
 
@@ -52,6 +53,14 @@ handle_proc_branch_darwin (void)
 	printf ("%s:%d: ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
 
 	while (! done) {
+		attempts++;
+		printf ("%s:%d: attempts=%d\n", __func__, __LINE__, attempts);
+
+		if (attempts == 3) {
+			printf ("%s:%d: attempts=%d - exiting\n", __func__, __LINE__, attempts);
+			exit (EXIT_FAILURE);
+		}
+
 		for (i = 0; i < count && !done; i++) {
 			pid = pids[i];
 			printf ("%s:%d: i=%d, pid=%d\n", __func__, __LINE__, i, (unsigned)pid);
