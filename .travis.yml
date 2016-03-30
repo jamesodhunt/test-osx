@@ -1,0 +1,14 @@
+language: c
+compiler:
+  - gcc
+  - clang
+os:
+  - osx
+before_install:
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install expat check perl; fi
+script: make
+notifications:
+  email:
+    recipients:
+      - jamesodhunt@ubuntu.com
