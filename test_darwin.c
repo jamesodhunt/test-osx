@@ -23,7 +23,11 @@ handle_proc_branch_darwin (void)
 
 	current = getpid ();
 
+	printf ("%s:%d: current=%u\n", __func__, __LINE__, (unsigned)current);
+
 	count = proc_listpids (PROC_ALL_PIDS, 0, NULL, 0);
+	printf ("%s:%d: count=%lu\n", __func__, __LINE__, (unsigned long int)count);
+
 	pids = calloc (count, sizeof (pid_t));
 	if (! pids)
 		return;
@@ -36,16 +40,21 @@ handle_proc_branch_darwin (void)
 	 * parent of all processes.
 	 */
 	ultimate_parent = pids[0];
+	printf ("%s:%d: ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
 
 	for (i = 1; i < count; i++) {
 		pid = pids[i];
-		if (pid < ultimate_parent)
+		if (pid < ultimate_parent) {
 			ultimate_parent = pid;
+		}
 	}
+
+	printf ("%s:%d: ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
 
 	while (! done) {
 		for (i = 0; i < count && !done; i++) {
 			pid = pids[i];
+			printf ("%s:%d: i=%d, pid=%d\n", __func__, __LINE__, i, (unsigned)pid);
 
 			if (pid == current) {
 				char name[1024];
@@ -53,6 +62,8 @@ handle_proc_branch_darwin (void)
 				ret = proc_name (pid, name, sizeof (name));
 				if (! ret)
 					goto out;
+
+				printf ("%s:%d: i=%d, pid=%d, name='%s'\n", __func__, __LINE__, i, (unsigned)pid, name);
 
 				if (ultimate_parent == 1 && current == ultimate_parent) {
 
@@ -67,19 +78,20 @@ handle_proc_branch_darwin (void)
 
 				/* Move on */
 				current = pid;
+				printf ("%s:%d: changed current to %u\n", __func__, __LINE__, (unsigned)current);
 			}
 		}
 	}
 
 out:
 	if (pids)
-        free (pids);
+		free (pids);
 }
 
 int
 main (int argc, char *argv[])
 {
-    handle_proc_branch_darwin ();
+	handle_proc_branch_darwin ();
 
-    exit (EXIT_SUCCESS);
+	exit (EXIT_SUCCESS);
 }
