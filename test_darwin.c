@@ -3,7 +3,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <stdbool.h>
+#include <errno.h>
 
 #include <sys/sysctl.h>
 
@@ -55,10 +57,14 @@ handle_proc_branch_darwin (void)
 			return;
 
 		/* request the details of the processes */
-		ret = sysctl ((int *)mib, mib_len (mib), NULL, &bytes, NULL, 0);
+		ret = sysctl ((int *)mib, mib_len (mib), procs, &bytes, NULL, 0);
 		if (ret < 0) {
 			free (procs);
 			procs = NULL;
+			if (errno != ENOMEM) {
+				/* unknown error, so give up */
+				return;
+			}
 		} else {
 			printf ("%s:%d: loaded all procs\n", __func__, __LINE__);
 			done = true;
