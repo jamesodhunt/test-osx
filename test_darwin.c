@@ -3,98 +3,123 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdbool.h>
 
-#include <pthread.h>
-#include <sys/proc_info.h>
-#include <libproc.h>
+#include <sys/sysctl.h>
+
+#define mib_len(mib) ((sizeof (mib) / sizeof(*mib)) - 1)
 
 static void
 handle_proc_branch_darwin (void)
 {
-	int                  count = 0;
-	pid_t               *pids = NULL;
-	pid_t                pid;
+	struct kinfo_proc   *procs = NULL;
+	struct kinfo_proc   *p;
+	static const int     mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+	int                  ret;
+	int                  done = false;
+	size_t               bytes;
+	size_t               count;
+	size_t               i;
 	pid_t                current;
 	pid_t                ultimate_parent = 0;
 
-	int                  i;
-	int                  ret;
-	int                  done = false;
-	int                  attempts = 0;
+	/* arbitrary */
+	int                  attempts = 20;
 
 	current = getpid ();
 
 	printf ("%s:%d: current=%u\n", __func__, __LINE__, (unsigned)current);
 
-	count = proc_listpids (PROC_ALL_PIDS, 0, NULL, 0);
-	printf ("%s:%d: count=%lu\n", __func__, __LINE__, (unsigned long int)count);
+	/* XXX: This system interface seems horribly racy - what if the numbe of pids
+	 * XXX: changes between the 1st and 2nd call to sysctl() ???
+	 */
+	while (! done) {
+		attempts--;
+		if (! attempts)
+			return;
 
-	pids = calloc (count, sizeof (pid_t));
-	if (! pids)
-		return;
+		/* determine how much space required to store details of all
+		 * processes.
+		 */
+		ret = sysctl ((int *)mib, mib_len (mib), NULL, &bytes, NULL, 0);
+		if (ret < 0)
+			return;
 
-	ret = proc_listpids (PROC_ALL_PIDS, 0, pids, sizeof (pids));
-	if (ret < 0)
+		count = bytes / sizeof (struct kinfo_proc);
+		printf ("%s:%d: bytes=%u\n", __func__, __LINE__, (unsigned)bytes);
+		printf ("%s:%d: proc count=%u\n", __func__, __LINE__, (unsigned)count);
+
+		/* allocate space */
+		procs = calloc (count, sizeof (struct kinfo_proc));
+		if (! procs)
+			return;
+
+		/* request the details of the processes */
+		ret = sysctl ((int *)mib, mib_len (mib), NULL, &bytes, NULL, 0);
+		if (ret < 0) {
+			free (procs);
+			procs = NULL;
+		} else {
+			printf ("%s:%d: loaded all procs\n", __func__, __LINE__);
+			done = true;
+		}
+	}
+
+	printf ("%s:%d:\n", __func__, __LINE__);
+
+	if (! done)
 		goto out;
+
+	printf ("%s:%d:\n", __func__, __LINE__);
+
+	/* reset */
+	done = false;
 
 	/* Calculate the lowest PID number which gives us the ultimate
 	 * parent of all processes.
 	 */
-	ultimate_parent = pids[0];
+	p = &procs[0];
+	ultimate_parent = p->kp_proc.p_pid;
 	printf ("%s:%d: ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
 
 	for (i = 1; i < count; i++) {
-		pid = pids[i];
-		if (pid < ultimate_parent) {
-			ultimate_parent = pid;
-		}
+		p = &procs[i];
+		if (p->kp_proc.p_pid < ultimate_parent)
+			ultimate_parent = p->kp_proc.p_pid;
 	}
 
-	printf ("%s:%d: ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
+	printf ("%s:%d: final ultimate_parent=%u\n", __func__, __LINE__, (unsigned)ultimate_parent);
 
 	while (! done) {
-		attempts++;
-		printf ("%s:%d: attempts=%d\n", __func__, __LINE__, attempts);
-
-		if (attempts == 3) {
-			printf ("%s:%d: attempts=%d - exiting\n", __func__, __LINE__, attempts);
-			exit (EXIT_FAILURE);
-		}
-
 		for (i = 0; i < count && !done; i++) {
-			pid = pids[i];
-			printf ("%s:%d: i=%d, pid=%d\n", __func__, __LINE__, i, (unsigned)pid);
+			p = &procs[i];
+			printf ("%s:%d: i=%d\n", __func__, __LINE__, (int)i);
 
-			if (pid == current) {
-				char name[1024];
+			if (p->kp_proc.p_pid == current) {
+				printf ("%s:%d:\n", __func__, __LINE__);
 
-				ret = proc_name (pid, name, sizeof (name));
-				if (! ret)
-					goto out;
-
-				printf ("%s:%d: i=%d, pid=%d, name='%s'\n", __func__, __LINE__, i, (unsigned)pid, name);
-
-				if (ultimate_parent == 1 && current == ultimate_parent) {
+				if (! ultimate_parent && current == ultimate_parent) {
 
 					/* Found the "last" PID so record it and hop out */
-					printf ("%d ('%s')\n", (int)current, name);
+					printf ("%d ('%s')\n", (int)current, p->kp_proc.p_comm);
 					done = true;
 					break;
 				} else {
 					/* Found a valid parent pid */
-					printf ("%d ('%s'), ", (int)current, name);
+					printf ("%d ('%s')\n",
+							(int)current, p->kp_proc.p_comm);
 				}
 
 				/* Move on */
-				current = pid;
+				current = p->kp_eproc.e_ppid;
 				printf ("%s:%d: changed current to %u\n", __func__, __LINE__, (unsigned)current);
 			}
 		}
 	}
 
 out:
-	if (pids)
-		free (pids);
+	if (procs)
+		free (procs);
 }
 
 int
